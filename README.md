@@ -1,5 +1,8 @@
 # Robustness-Lib
 
+[![CI](https://github.com/kapildhinwa2010-dev/Robustness-Lib/actions/workflows/ci.yml/badge.svg)](https://github.com/kapildhinwa2010-dev/Robustness-Lib/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/kapildhinwa2010-dev/Robustness-Lib/actions/workflows/codeql.yml/badge.svg)](https://github.com/kapildhinwa2010-dev/Robustness-Lib/actions/workflows/codeql.yml)
+
 Reusable noise-stability checks: how much each codec degrades under Gaussian noise.
 
 ## What it does
