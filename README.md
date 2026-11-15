@@ -1,41 +1,35 @@
 # Robustness-Lib
 
-Compression benchmark suite.
+Reusable noise-stability checks: how much each codec degrades under Gaussian noise.
 
-**Part of the [Kapildhinwa2010-dev Toolkit](https://github.com/kapildhinwa2010-dev/Kapildhinwa2010-dev).**
+## What it does
 
-![CI](https://github.com/kapildhinwa2010-dev/Robustness-Lib/actions/workflows/ci.yml/badge.svg)
-![CodeQL](https://github.com/kapildhinwa2010-dev/Robustness-Lib/actions/workflows/codeql.yml/badge.svg)
-![Python](https://img.shields.io/badge/python-3.9%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+- add_noise(matrix, std, rng) adds Gaussian noise to a copy of a matrix.
+- stability_check(matrix, noise_std, repeats, rng) perturbs the matrix
+  several times, runs each codec on the noisy input, and reports the
+  mean relative error against the clean matrix, sorted most stable first.
 
-## ✨ Features
+    from robustness_lib import stability_check
 
-- Four strategies: SVD rank, quantization, Fourier basis, hybrid
-- Uniform relative-error reporting
-- One-call `benchmark()` over all methods
+    for row in stability_check(matrix, noise_std=0.05):
+        print(row["method"], round(row["mean_relative_error"], 4))
 
-## 📦 Install
+## API
 
-```bash
-pip install -r requirements.txt
-```
+- add_noise(matrix, std=0.05, rng=None)
+- stability_check(matrix, noise_std=0.05, repeats=3, rng=None)
+- The four codecs are included so the checks are self-contained.
 
-## 🚀 Quick start
+## Honest results and limitations
 
-```python
-from robustness_lib import benchmark
+- Quantization is the most noise-tolerant codec here (it clips to the
+  value range); Fourier least-squares fitting is the most fragile - its
+  coefficients swing hard under noise. SVD sits in between.
+- stable is an arbitrary 0.5 relative-error threshold, not a guarantee.
+- Results depend on matrix structure; smooth matrices and random
+  matrices behave very differently.
 
-for result in benchmark(W):
-    print(result['method'], result['relative_error'])
-```
+## Status
 
-## 🧪 Tests
-
-```bash
-pytest tests/ -v
-```
-
-## 📄 License
-
-MIT — see [LICENSE](LICENSE).
+Part of the kapildhinwa2010-dev toolkit experiments. CI and CodeQL run on
+every push to main. License: MIT.

@@ -1,26 +1,35 @@
-# Robustness-Lib - Robustness library: measure compression stability under noise
+# Robustness-Lib - Reusable noise-stability library
 # Part of the Kapildhinwa2010-dev Toolkit.
 
-"""CompressNet - compression benchmark suite.
+"""Robustness-Lib - noise stability checks for compression codecs.
 
-Lineage: all toolkit repos. Benchmarks four compression strategies (SVD rank,
-Fourier basis, quantization, hybrid) on random and structured matrices and
-reports size reduction vs reconstruction error.
+Provides add_noise(), which perturbs a matrix with Gaussian noise, and
+stability_check(), which measures how much each toolkit codec degrades
+as noise rises.
+
+Honest limitation: quantization is surprisingly noise-tolerant (it clips
+to the value range) while Fourier fitting is the most fragile codec -
+least-squares coefficients swing hard under noise.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from activation_compress_helpers import fourier_basis  # vendored helper
+__all__ = ["add_noise", "stability_check", "svd_compress", "quantize",
+           "fourier_compress", "hybrid_compress", "fourier_basis"]
 
-__all__ = [
-    "svd_compress",
-    "quantize",
-    "fourier_compress",
-    "hybrid_compress",
-    "benchmark",
-]
+
+def fourier_basis(n_points: int, num_coeffs: int = 4) -> np.ndarray:
+    """Design matrix [1, sin t, cos t, sin 2t, cos 2t, ...] over one period."""
+    if n_points < 1 or num_coeffs < 1:
+        raise ValueError("n_points and num_coeffs must be >= 1")
+    t = np.linspace(0.0, 2.0 * np.pi, n_points, endpoint=False)
+    cols = [np.ones(n_points)]
+    for k in range(1, num_coeffs + 1):
+        cols.append(np.sin(k * t))
+        cols.append(np.cos(k * t))
+    return np.stack(cols, axis=1)
 
 
 def _check(matrix: np.ndarray) -> np.ndarray:
@@ -56,7 +65,7 @@ def fourier_compress(matrix: np.ndarray, num_coeffs: int = 4) -> np.ndarray:
         raise ValueError("num_coeffs must be >= 1")
     basis = fourier_basis(matrix.shape[1], num_coeffs)
     coeffs, _, _, _ = np.linalg.lstsq(basis, matrix.T, rcond=None)
-    return (coeffs.T @ basis.T)
+    return coeffs.T @ basis.T
 
 
 def hybrid_compress(matrix: np.ndarray, rank: int = 4, bits: int = 8) -> np.ndarray:
@@ -64,22 +73,46 @@ def hybrid_compress(matrix: np.ndarray, rank: int = 4, bits: int = 8) -> np.ndar
     return quantize(svd_compress(matrix, rank=rank), bits=bits)
 
 
-def benchmark(matrix: np.ndarray) -> list:
-    """Run all methods; return dicts with method, error and storage estimate."""
+def add_noise(matrix: np.ndarray, std: float = 0.05, rng: np.random.Generator = None) -> np.ndarray:
+    """Gaussian noise with standard deviation std added to a copy of matrix."""
     matrix = _check(matrix)
-    results = []
-    methods = {
-        "svd_rank4": svd_compress(matrix, rank=4),
-        "quantize8": quantize(matrix, bits=8),
-        "fourier4": fourier_compress(matrix, num_coeffs=4),
-        "hybrid": hybrid_compress(matrix, rank=4, bits=8),
-    }
+    if std < 0:
+        raise ValueError("std must be >= 0")
+    rng = rng or np.random.default_rng(0)
+    return matrix + rng.normal(0.0, std, size=matrix.shape)
+
+
+def stability_check(matrix: np.ndarray, noise_std: float = 0.05,
+                    repeats: int = 3, rng: np.random.Generator = None) -> list:
+    """Mean relative error of each codec when its input is noisy.
+
+    For each of repeats trials the matrix is perturbed with Gaussian noise
+    of standard deviation noise_std, each codec reconstructs the noisy
+    input, and the reconstruction is compared against the CLEAN matrix.
+    Returns dicts with method, mean_relative_error and stable (mean < 0.5),
+    sorted most stable first.
+    """
+    matrix = _check(matrix)
+    if noise_std < 0 or repeats < 1:
+        raise ValueError("noise_std must be >= 0 and repeats >= 1")
+    rng = rng or np.random.default_rng(0)
     norm = float(np.linalg.norm(matrix))
-    for name, approx in methods.items():
-        rel_error = float(np.linalg.norm(matrix - approx)) / norm if norm else 0.0
-        results.append({
-            "method": name,
-            "relative_error": rel_error,
-            "passed": rel_error < 0.5,
-        })
-    return results
+    methods = {
+        "svd_rank4": lambda m: svd_compress(m, rank=4),
+        "quantize8": lambda m: quantize(m, bits=8),
+        "fourier4": lambda m: fourier_compress(m, num_coeffs=4),
+        "hybrid": lambda m: hybrid_compress(m, rank=4, bits=8),
+    }
+    sums = {name: 0.0 for name in methods}
+    for _ in range(repeats):
+        noisy = add_noise(matrix, std=noise_std, rng=rng)
+        for name, codec in methods.items():
+            approx = codec(noisy)
+            sums[name] += float(np.linalg.norm(matrix - approx)) / norm if norm else 0.0
+    rows = [{
+        "method": name,
+        "mean_relative_error": total / repeats,
+        "stable": (total / repeats) < 0.5,
+    } for name, total in sums.items()]
+    rows.sort(key=lambda row: row["mean_relative_error"])
+    return rows
